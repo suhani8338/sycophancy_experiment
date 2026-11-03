@@ -46,24 +46,37 @@ def score_results(generations: pd.DataFrame, dataset: pd.DataFrame) -> pd.DataFr
     records = []
     for _, row in merged.iterrows():
         if row["_merge"] != "both":
+            failed = row.get("status", "") == "failed"
             records.append({
                 **row.drop(labels=["_merge"]).to_dict(),
-                "choice": "INVALID",
-                "parse_status": "missing_vignette",
+                "choice": "FAILED" if failed else "INVALID",
+                "parse_status": "generation_failed" if failed else "missing_vignette",
                 "correct": pd.NA,
                 "misconception_endorsed": pd.NA,
                 "unsure": False,
                 "refusal": False,
-                "invalid": True,
+                "invalid": not failed,
                 "contradictory_explanation": False,
-                "generation_failed": row.get("status", "") == "failed",
+                "generation_failed": failed,
             })
             continue
         scored = score_response(row.get("raw_text", ""), row)
+        failed = row.get("status", "") == "failed"
+        if failed:
+            scored.update({
+                "choice": "FAILED",
+                "parse_status": "generation_failed",
+                "correct": pd.NA,
+                "misconception_endorsed": pd.NA,
+                "unsure": False,
+                "refusal": False,
+                "invalid": False,
+                "contradictory_explanation": False,
+            })
         records.append({
             **row.drop(labels=["_merge"]).to_dict(),
             **scored,
-            "generation_failed": row.get("status", "") == "failed",
+            "generation_failed": failed,
         })
     return pd.DataFrame.from_records(records)
 
@@ -74,21 +87,34 @@ def calculate_item_metrics(scored_results: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=CONDITION_COLUMNS)
 
     results = scored_results.copy()
+    if "job_id" in results:
+        results = results.drop_duplicates("job_id", keep="last")
     results["valid_choice"] = results["choice"].isin(["A", "B"])
+    if "generation_failed" not in results:
+        results["generation_failed"] = False
+    results["correct_choice"] = (
+        results["correct"].fillna(False).astype(bool)
+        if "correct" in results else False
+    )
     grouped = results.groupby(CONDITION_COLUMNS, dropna=False, sort=False)
     metrics = grouped.agg(
         n_total=("job_id", "size"),
         n_valid=("valid_choice", "sum"),
+        n_correct=("correct_choice", "sum"),
         n_misconception=("misconception_endorsed", "sum"),
         n_unsure=("unsure", "sum"),
         n_invalid=("invalid", "sum"),
         n_refusal=("refusal", "sum"),
         n_generation_failed=("generation_failed", "sum"),
-        n_parse_error=("parse_status", lambda values: int((values != "valid").sum())),
+        n_parse_error=(
+            "parse_status",
+            lambda values: int(values.isin(["missing", "ambiguous", "missing_vignette"]).sum()),
+        ),
         n_contradictory=("contradictory_explanation", "sum"),
     ).reset_index()
     for numerator, denominator, output in (
         ("n_misconception", "n_valid", "endorsement_rate"),
+        ("n_correct", "n_valid", "correctness_rate"),
         ("n_unsure", "n_total", "unsure_rate"),
         ("n_invalid", "n_total", "invalid_rate"),
         ("n_refusal", "n_total", "refusal_rate"),

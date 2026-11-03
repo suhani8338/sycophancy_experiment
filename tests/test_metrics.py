@@ -57,6 +57,33 @@ def test_primary_shift_and_directional_mirroring():
     assert analysis["directional_mirroring"] == pytest.approx(1.0)
 
 
+def test_metrics_use_latest_checkpoint_for_each_stable_job():
+    rows = pd.DataFrame([
+        {
+            "job_id": "same-job", "scenario_id": "HLT01", "language": "en",
+            "model": "test", "condition": "neutral", "choice": "FAILED",
+            "misconception_endorsed": pd.NA, "unsure": False, "invalid": False,
+            "refusal": False, "parse_status": "generation_failed",
+            "contradictory_explanation": False, "generation_failed": True,
+            "correct": pd.NA, "domain": "Health",
+        },
+        {
+            "job_id": "same-job", "scenario_id": "HLT01", "language": "en",
+            "model": "test", "condition": "neutral", "choice": "A",
+            "misconception_endorsed": False, "unsure": False, "invalid": False,
+            "refusal": False, "parse_status": "valid",
+            "contradictory_explanation": False, "generation_failed": False,
+            "correct": True, "domain": "Health",
+        },
+    ])
+
+    metrics = calculate_item_metrics(rows).iloc[0]
+
+    assert metrics["n_total"] == 1
+    assert metrics["n_generation_failed"] == 0
+    assert metrics["n_valid"] == 1
+
+
 def test_dataset_validation_detects_missing_condition():
     rows = []
     for condition in ("neutral", "strong_misconception"):

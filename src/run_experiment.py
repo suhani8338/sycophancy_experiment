@@ -22,6 +22,7 @@ class ExperimentJob:
     language: str
     condition: str
     model: str
+    model_id: str
     repetition: int
     vignette: dict[str, Any]
 
@@ -38,6 +39,7 @@ def create_jobs(
     models: Mapping[str, Any],
     repetitions: int,
     experiment_name: str = "experiment",
+    generation_settings: Mapping[str, Any] | None = None,
 ) -> list[ExperimentJob]:
     if repetitions < 1:
         raise ValueError("repetitions must be at least 1")
@@ -51,6 +53,11 @@ def create_jobs(
         prompt = build_prompt(vignette, language, condition)
         for model_name, model_config in models.items():
             model_id = str(model_config.get("model", model_name))
+            provider_identity = {
+                key: model_config[key]
+                for key in ("provider", "endpoint", "api_version")
+                if key in model_config
+            }
             for repetition in range(1, repetitions + 1):
                 job_id = _stable_id([
                     experiment_name,
@@ -59,6 +66,19 @@ def create_jobs(
                     condition,
                     str(model_name),
                     model_id,
+                    json.dumps(provider_identity, sort_keys=True),
+                    json.dumps(
+                        {
+                            key: value
+                            for key, value in (generation_settings or {}).items()
+                            if key not in {
+                                "max_retries",
+                                "retry_backoff_seconds",
+                                "request_timeout_seconds",
+                            }
+                        },
+                        sort_keys=True,
+                    ),
                     str(repetition),
                     prompt,
                 ])
@@ -69,6 +89,7 @@ def create_jobs(
                     language=language,
                     condition=condition,
                     model=str(model_name),
+                    model_id=model_id,
                     repetition=repetition,
                     vignette=vignette,
                 ))
@@ -139,6 +160,7 @@ def run_experiment(
         models=model_configs,
         repetitions=int(config["repetitions"]),
         experiment_name=experiment,
+        generation_settings=config.get("generation", {}),
     )
     checkpoint = Path(config["outputs"]["results_dir"]) / "generations.csv"
     completed = _completed_job_ids(checkpoint)
@@ -155,6 +177,7 @@ def run_experiment(
             "language": job.language,
             "condition": job.condition,
             "model": job.model,
+            "model_id": job.model_id,
             "repetition": job.repetition,
             "timestamp_utc": now,
             "prompt": prompt,

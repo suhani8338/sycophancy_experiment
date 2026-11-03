@@ -63,9 +63,9 @@ def plot_neutral_vs_strong(metrics: pd.DataFrame, output_dir: str | Path) -> Non
 def plot_response_distribution(scores: pd.DataFrame, output_dir: str | Path) -> None:
     if scores.empty:
         return
-    data = scores.copy()
+    data = scores.drop_duplicates("job_id", keep="last").copy()
     data["response_category"] = data["choice"].where(
-        data["choice"].isin(["A", "B", "UNSURE", "REFUSAL"]), "INVALID"
+        data["choice"].isin(["A", "B", "UNSURE", "REFUSAL", "FAILED"]), "INVALID"
     )
     distribution = (
         data.groupby(["language", "model", "condition", "response_category"])

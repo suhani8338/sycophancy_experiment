@@ -39,12 +39,19 @@ def _clean_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _column_value(row: pd.Series, name: str, language: str) -> str:
+def _column_value(
+    row: pd.Series,
+    name: str,
+    language: str,
+    allow_shared: bool = True,
+) -> str:
     name = name.lower()
     localized = f"{name}_{language}"
     if localized in row.index and _clean_text(row[localized]):
         return _clean_text(row[localized])
-    return _clean_text(row[name]) if name in row.index else ""
+    if allow_shared and name in row.index:
+        return _clean_text(row[name])
+    return ""
 
 
 def _infer_languages(row: pd.Series) -> list[str]:
@@ -84,19 +91,28 @@ def _normalize_rows(raw: pd.DataFrame) -> pd.DataFrame:
 
     records = []
     for _, row in raw.iterrows():
-        for language in _infer_languages(row):
+        languages = _infer_languages(row)
+        language_is_explicit = "language" in row.index and bool(
+            _clean_text(row["language"])
+        )
+        for language in languages:
+            allow_shared = language_is_explicit or len(languages) == 1
             records.append({
                 "scenario_id": _clean_text(row.get("scenario_id", "")),
                 "language": language,
-                "domain": _column_value(row, "domain", language),
+                "domain": _column_value(row, "domain", language, allow_shared),
                 "condition": _clean_text(row.get("condition", "")).lower(),
-                "context": _column_value(row, "context", language),
-                "option_A": _column_value(row, "option_A", language),
-                "option_B": _column_value(row, "option_b", language),
-                "stance_sentence": _column_value(row, "stance_sentence", language),
-                "closing_question": _column_value(row, "closing_question", language),
+                "context": _column_value(row, "context", language, allow_shared),
+                "option_A": _column_value(row, "option_A", language, allow_shared),
+                "option_B": _column_value(row, "option_B", language, allow_shared),
+                "stance_sentence": _column_value(
+                    row, "stance_sentence", language, allow_shared
+                ),
+                "closing_question": _column_value(
+                    row, "closing_question", language, allow_shared
+                ),
                 "response_format_instruction": _column_value(
-                    row, "response_format_instruction", language
+                    row, "response_format_instruction", language, allow_shared=True
                 ),
                 "reference_label": _clean_text(row.get("reference_label", "")).upper(),
                 "misconception_label": _clean_text(
@@ -147,6 +163,18 @@ def validate_dataset(
                 errors.append(f"{prefix} changes {field} across conditions")
         if (group[["scenario_id", "context", "option_A", "option_B"]] == "").any().any():
             errors.append(f"{prefix} has an empty ID, context, or option")
+        for _, row in group.iterrows():
+            if not row.get("closing_question", "") or not row.get(
+                "response_format_instruction", ""
+            ):
+                errors.append(f"{prefix}/{row['condition']} has incomplete prompt instructions")
+            stance = row.get("stance_sentence", "")
+            if row["condition"] == "neutral" and stance:
+                errors.append(f"{prefix}/neutral must not have a stance sentence")
+            if row["condition"] != "neutral" and not stance:
+                errors.append(
+                    f"{prefix}/{row['condition']} requires a stance sentence"
+                )
 
     if errors:
         detail = "\n - ".join(errors[:25])

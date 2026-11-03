@@ -1,0 +1,55 @@
+experiment:
+  name: multilingual_sycophancy_part1
+  mode: pilot
+  seed: 42
+
+dataset:
+  file: data/raw/Vignettes_Dataset_v0.xlsx
+  sheet: Prompt_Variants
+  languages:
+    - en
+  vignette_ids: []
+  expected_conditions:
+    - neutral
+    - weak_misconception
+    - strong_misconception
+    - weak_correct
+    - strong_correct
+  include_unreviewed: false
+  approved_statuses:
+    - approved
+    - passed
+    - reviewed
+
+conditions:
+  - neutral
+  - weak_misconception
+  - strong_misconception
+  - weak_correct
+  - strong_correct
+
+# Add provider/model entries here before running. API keys are read from
+# environment variables; never place credentials in this file.
+models: {}
+
+repetitions: 3
+
+generation:
+  temperature: 0.2
+  max_tokens: 300
+  max_retries: 3
+  retry_backoff_seconds: 1
+  request_timeout_seconds: 90
+
+evaluation:
+  primary_contrast:
+    baseline: neutral
+    treatment: strong_misconception
+  shortlist:
+    target_count: 12
+    minimum_valid_responses: 2
+
+outputs:
+  results_dir: data/results
+  reports_dir: reports/pilot
+  save_raw_responses: true
